@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Rendo Capital | Forex Performance Terminal</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    background:#0b0f14;
+    color:#e6e6e6;
+    font-family:Arial;
+    margin:0;
+    padding:20px;
+}
+h1 { color:gold; }
+
+.grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.card {
+    background:#141a22;
+    padding:20px;
+    border-radius:12px;
+}
+
+input, select, textarea {
+    width:100%;
+    padding:8px;
+    margin:6px 0;
+    background:#1c2330;
+    border:none;
+    color:white;
+}
+
+button {
+    padding:10px;
+    background:gold;
+    border:none;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+.stats {
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:20px;
+}
+
+.stat-box {
+    background:#141a22;
+    padding:15px;
+    width:18%;
+    border-radius:10px;
+    text-align:center;
+}
+
+table {
+    width:100%;
+    border-collapse:collapse;
+    margin-top:20px;
+}
+
+th, td {
+    border:1px solid #222;
+    padding:6px;
+    font-size:13px;
+}
+
+img {
+    width:100px;
+    border-radius:6px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Rendo Capital | Forex Performance Terminal</h1>
+
+<div class="stats">
+<div class="stat-box"><h4>Total Trades</h4><p id="totalTrades">0</p></div>
+<div class="stat-box"><h4>Win Rate</h4><p id="winRate">0%</p></div>
+<div class="stat-box"><h4>Total R</h4><p id="totalR">0</p></div>
+<div class="stat-box"><h4>Avg Risk %</h4><p id="avgRisk">0%</p></div>
+<div class="stat-box"><h4>Rule Breaks</h4><p id="ruleBreaks">0</p></div>
+</div>
+
+<div class="grid">
+
+<div class="card">
+<h2>Log Trade</h2>
+<form id="tradeForm">
+
+<input type="date" id="date" required>
+<input type="text" id="pair" placeholder="Pair (EURUSD)" required>
+
+<select id="direction">
+<option>Buy</option>
+<option>Sell</option>
+</select>
+
+<input type="number" step="0.0001" id="entry" placeholder="Entry" required>
+<input type="number" step="0.0001" id="stop" placeholder="Stop Loss" required>
+<input type="number" step="0.0001" id="tp" placeholder="Take Profit" required>
+
+<input type="number" step="0.1" id="riskPercent" placeholder="Risk % (e.g. 1.0)" required>
+
+<select id="result">
+<option value="win">Win</option>
+<option value="loss">Loss</option>
+</select>
+
+<select id="ruleBreak">
+<option value="no">No Rule Break</option>
+<option value="yes">Rule Break</option>
+</select>
+
+<input type="file" id="screenshot" accept="image/*">
+
+<textarea id="notes" placeholder="Psychology / Lesson"></textarea>
+
+<button type="submit">Add Trade</button>
+</form>
+</div>
+
+<div class="card">
+<h2>Equity Curve</h2>
+<canvas id="equityChart"></canvas>
+</div>
+
+</div>
+
+<h2>Trade History</h2>
+<table id="tradeTable">
+<thead>
+<tr>
+<th>Date</th>
+<th>Pair</th>
+<th>R</th>
+<th>Risk%</th>
+<th>Rule Break</th>
+<th>Screenshot</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<h2>Pair Performance</h2>
+<div id="pairStats"></div>
+
+<h2>Monthly Performance</h2>
+<div id="monthlyStats"></div>
+
+<script>
+
+let trades = JSON.parse(localStorage.getItem("trades")) || [];
+let equityData = [];
+let equity = 0;
+
+const ctx = document.getElementById('equityChart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label:'Equity (R)', data:[], borderColor:'gold' }] }
+});
+
+function saveData() {
+    localStorage.setItem("trades", JSON.stringify(trades));
+}
+
+function calculateR(entry, stop, tp, result) {
+    const risk = Math.abs(entry - stop);
+    const reward = Math.abs(tp - entry);
+    return result === "win" ? (reward/risk) : -1;
+}
+
+document.getElementById("tradeForm").addEventListener("submit", function(e){
+    e.preventDefault();
+
+    const reader = new FileReader();
+    const file = document.getElementById("screenshot").files[0];
+
+    reader.onload = function(){
+        addTrade(reader.result);
+    }
+
+    if(file){
+        reader.readAsDataURL(file);
+    } else {
+        addTrade(null);
+    }
+});
+
+function addTrade(imageData){
+
+    const date = document.getElementById("date").value;
+    const pair = document.getElementById("pair").value.toUpperCase();
+    const entry = parseFloat(entry.value);
+    const stop = parseFloat(stop.value);
+    const tp = parseFloat(tp.value);
+    const riskPercent = parseFloat(riskPercent.value);
+    const result = document.getElementById("result").value;
+    const ruleBreak = document.getElementById("ruleBreak").value;
+    const notes = document.getElementById("notes").value;
+
+    const r = calculateR(entry,stop,tp,result);
+
+    trades.push({date,pair,r,riskPercent,ruleBreak,notes,imageData});
+    saveData();
+    updateAll();
+    document.getElementById("tradeForm").reset();
+}
+
+function updateAll(){
+    let wins = 0;
+    let totalRisk = 0;
+    let ruleBreaks = 0;
+    equity = 0;
+    equityData = [];
+
+    trades.forEach(t=>{
+        if(t.r > 0) wins++;
+        totalRisk += t.riskPercent;
+        if(t.ruleBreak==="yes") ruleBreaks++;
+        equity += t.r;
+        equityData.push(equity);
+    });
+
+    document.getElementById("totalTrades").innerText = trades.length;
+    document.getElementById("winRate").innerText = trades.length?((wins/trades.length)*100).toFixed(1)+"%":"0%";
+    document.getElementById("totalR").innerText = equity.toFixed(2);
+    document.getElementById("avgRisk").innerText = trades.length?(totalRisk/trades.length).toFixed(2)+"%":"0%";
+    document.getElementById("ruleBreaks").innerText = ruleBreaks;
+
+    updateTable();
+    updateChart();
+    updatePairStats();
+    updateMonthlyStats();
+}
+
+function updateTable(){
+    const tbody = document.querySelector("#tradeTable tbody");
+    tbody.innerHTML="";
+    trades.forEach(t=>{
+        const row = tbody.insertRow();
+        row.insertCell(0).innerText = t.date;
+        row.insertCell(1).innerText = t.pair;
+        row.insertCell(2).innerText = t.r.toFixed(2);
+        row.insertCell(3).innerText = t.riskPercent+"%";
+        row.insertCell(4).innerText = t.ruleBreak;
+        row.insertCell(5).innerHTML = t.imageData? `<img src="${t.imageData}">`:"";
+    });
+}
+
+function updateChart(){
+    chart.data.labels = trades.map((_,i)=>i+1);
+    chart.data.datasets[0].data = equityData;
+    chart.update();
+}
+
+function updatePairStats(){
+    const stats = {};
+    trades.forEach(t=>{
+        if(!stats[t.pair]) stats[t.pair]={count:0,totalR:0};
+        stats[t.pair].count++;
+        stats[t.pair].totalR+=t.r;
+    });
+
+    let html="";
+    for(let pair in stats){
+        html+= `<p>${pair}: Trades ${stats[pair].count} | Total R ${stats[pair].totalR.toFixed(2)}</p>`;
+    }
+    document.getElementById("pairStats").innerHTML=html;
+}
+
+function updateMonthlyStats(){
+    const stats = {};
+    trades.forEach(t=>{
+        const month = t.date.substring(0,7);
+        if(!stats[month]) stats[month]=0;
+        stats[month]+=t.r;
+    });
+
+    let html="";
+    for(let month in stats){
+        html+= `<p>${month}: ${stats[month].toFixed(2)} R</p>`;
+    }
+    document.getElementById("monthlyStats").innerHTML=html;
+}
+
+updateAll();
+
+</script>
+
+</body>
+</html>
